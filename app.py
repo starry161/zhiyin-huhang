@@ -14,6 +14,9 @@ MODEL_PATH = OUT / "best_recall_model.joblib"
 SHAP_DIR = OUT / "shap_analysis"
 SHAP_GLOBAL_PATH = OUT / "shap_analysis" / "SHAP特征重要性排序.csv"
 MODEL_COMPARISON_DIR = OUT / "model_comparison"
+LOCAL_MODEL_PATH = OUT / "localized_churn_model.joblib"
+LOCAL_METRICS_PATH = OUT / "localized_model_performance.csv"
+LOCAL_IMPORTANCE_PATH = OUT / "localized_feature_importance.csv"
 
 # 兼容通过 GitHub 网页上传后被放在仓库根目录的资源文件。
 if not MODEL_PATH.exists() and (PROJECT_ROOT / "best_recall_model.joblib").exists():
@@ -22,6 +25,28 @@ if not MODEL_PATH.exists() and (PROJECT_ROOT / "best_recall_model.joblib").exist
     SHAP_DIR = PROJECT_ROOT
     SHAP_GLOBAL_PATH = PROJECT_ROOT / "SHAP特征重要性排序.csv"
     MODEL_COMPARISON_DIR = PROJECT_ROOT
+    LOCAL_MODEL_PATH = PROJECT_ROOT / "localized_churn_model.joblib"
+    LOCAL_METRICS_PATH = PROJECT_ROOT / "localized_model_performance.csv"
+    LOCAL_IMPORTANCE_PATH = PROJECT_ROOT / "localized_feature_importance.csv"
+
+LOCAL_NUMERIC_FEATURES = [
+    "年龄", "信用评分", "开户年限", "账户余额", "持有信用卡", "活跃会员",
+    "估算年薪", "持有产品数", "储蓄产品", "理财产品", "贷款产品", "保险产品",
+    "月均交易次数", "月均交易金额", "交易额环比变化", "夜间交易占比",
+    "APP月登录次数", "客服联系次数", "投诉次数", "营销响应",
+]
+LOCAL_CATEGORICAL_FEATURES = ["性别", "所在城市", "教育水平", "婚姻状况", "职业", "账户类型", "常用渠道"]
+LOCAL_FEATURES = LOCAL_NUMERIC_FEATURES + LOCAL_CATEGORICAL_FEATURES
+LOCAL_REQUIRED_FEATURES = LOCAL_FEATURES
+LOCAL_LABELS = {
+    "年龄": "年龄", "信用评分": "信用评分", "开户年限": "开户年限", "账户余额": "账户余额",
+    "持有信用卡": "持有信用卡", "活跃会员": "活跃会员", "估算年薪": "估算年薪", "持有产品数": "持有产品数",
+    "储蓄产品": "储蓄产品", "理财产品": "理财产品", "贷款产品": "贷款产品", "保险产品": "保险产品",
+    "月均交易次数": "月均交易次数", "月均交易金额": "月均交易金额", "交易额环比变化": "交易额环比变化",
+    "夜间交易占比": "夜间交易占比", "APP月登录次数": "APP月登录次数", "客服联系次数": "客服联系次数",
+    "投诉次数": "投诉次数", "营销响应": "营销响应", "性别": "性别", "所在城市": "所在城市",
+    "教育水平": "教育水平", "婚姻状况": "婚姻状况", "职业": "职业", "账户类型": "账户类型", "常用渠道": "常用渠道",
+}
 
 REQUIRED_FEATURES = [
     "CreditScore", "Geography", "Gender", "Age", "Tenure", "Balance",
@@ -187,6 +212,8 @@ def upload_preview_table(raw):
 
 def metric_file():
     """返回模型性能结果文件路径。"""
+    if LOCAL_METRICS_PATH.exists():
+        return LOCAL_METRICS_PATH
     current = OUT / "table2_model_performance.csv"
     if current.exists():
         return current
@@ -254,10 +281,11 @@ def load_model_metrics():
 
 
 @st.cache_resource
-def load_model():
+def load_model(model_kind="legacy"):
     """加载已训练模型。"""
     import joblib
-    return joblib.load(MODEL_PATH)
+    path = LOCAL_MODEL_PATH if model_kind == "localized" else MODEL_PATH
+    return joblib.load(path)
 
 
 def get_preprocessor(pipe):
@@ -269,10 +297,10 @@ def get_preprocessor(pipe):
 
 
 @st.cache_resource
-def load_explainer():
+def load_explainer(model_kind="legacy"):
     """加载SHAP解释器。"""
     import shap
-    pipe = load_model()
+    pipe = load_model(model_kind)
     return shap.TreeExplainer(pipe.named_steps["model"])
 
 
@@ -285,10 +313,29 @@ def risk_level(p):
     return "高风险"
 
 
-def prepare_input(raw):
+def detect_model_kind(raw):
+    """识别欧洲基准数据或本土化扩展数据。"""
+    if set(LOCAL_REQUIRED_FEATURES).issubset(raw.columns) and "是否流失" in raw.columns:
+        return "localized"
+    return "legacy"
+
+
+def prepare_input(raw, model_kind=None):
     """校验CSV字段并抽取模型输入特征，防止改变原始数据接口。"""
     if raw.empty:
         raise ValueError("上传文件为空，请选择包含客户记录的CSV文件。")
+    model_kind = model_kind or detect_model_kind(raw)
+    if model_kind == "localized":
+        missing = [c for c in LOCAL_REQUIRED_FEATURES if c not in raw.columns]
+        if missing:
+            raise ValueError("本土化数据缺少必要字段：" + "、".join(missing))
+        customer_id = raw["客户ID"].copy() if "客户ID" in raw else pd.Series(np.arange(1, len(raw) + 1), index=raw.index)
+        features = raw[LOCAL_FEATURES].copy()
+        for col in LOCAL_NUMERIC_FEATURES:
+            features[col] = pd.to_numeric(features[col], errors="coerce")
+        if features[LOCAL_NUMERIC_FEATURES].isna().any().any():
+            raise ValueError("本土化数据的数值字段存在无法识别的内容，请检查 Excel 后重试。")
+        return features, customer_id, model_kind
     missing = [c for c in REQUIRED_FEATURES if c not in raw.columns]
     if missing:
         raise ValueError("缺少必要字段：" + "、".join(missing))
@@ -299,14 +346,14 @@ def prepare_input(raw):
         features[col] = pd.to_numeric(features[col], errors="coerce")
     if features[numeric_cols].isna().any().any():
         raise ValueError("数值字段存在无法识别的内容，请检查年龄、余额、产品数量等字段。")
-    return features, customer_id
+    return features, customer_id, model_kind
 
 
 def value_segment(row):
     """根据余额、收入和产品数量划分客户价值。"""
-    balance = float(row.get("Balance", 0) or 0)
-    salary = float(row.get("EstimatedSalary", 0) or 0)
-    products = float(row.get("NumOfProducts", 0) or 0)
+    balance = float(row.get("Balance", row.get("账户余额", 0)) or 0)
+    salary = float(row.get("EstimatedSalary", row.get("估算年薪", 0)) or 0)
+    products = float(row.get("NumOfProducts", row.get("持有产品数", 0)) or 0)
     return "高价值" if balance >= 100000 or salary >= 120000 or products >= 3 else "低价值"
 
 
@@ -328,8 +375,9 @@ def advice_for(row, level):
 
 def run_prediction(raw):
     """调用XGBoost管道完成客户流失风险预测。"""
-    pipe = load_model()
-    features, ids = prepare_input(raw)
+    model_kind = detect_model_kind(raw)
+    pipe = load_model(model_kind)
+    features, ids, model_kind = prepare_input(raw, model_kind)
     proba = pipe.predict_proba(features)[:, 1]
     result = raw.copy()
     result.insert(0, "客户ID", ids.astype(str).values)
@@ -337,7 +385,7 @@ def run_prediction(raw):
     result["风险等级"] = [risk_level(p) for p in proba]
     result["客户价值"] = [value_segment(row) for _, row in features.iterrows()]
     result["留存建议"] = [advice_for(row, level) for (_, row), level in zip(features.iterrows(), result["风险等级"])]
-    return result, features
+    return result, features, model_kind
 
 
 def business_name(transformed):
@@ -351,8 +399,13 @@ def business_name(transformed):
     return FEATURE_LABELS.get(name, name)
 
 
-def global_shap_table():
+def global_shap_table(model_kind="legacy"):
     """读取全局SHAP重要性结果。"""
+    if model_kind == "localized" and LOCAL_IMPORTANCE_PATH.exists():
+        data = pd.read_csv(LOCAL_IMPORTANCE_PATH)
+        data = data.rename(columns={"Rank": "排名", "Feature": "影响因素", "Importance": "平均绝对SHAP"})
+        data["影响因素"] = data["影响因素"].map(business_name)
+        return data[["排名", "影响因素", "平均绝对SHAP"]]
     if SHAP_GLOBAL_PATH.exists():
         data = pd.read_csv(SHAP_GLOBAL_PATH)
         if {"Rank", "Feature", "Mean_Abs_SHAP"}.issubset(data.columns):
@@ -367,13 +420,13 @@ def global_shap_table():
     return None
 
 
-def explain_row(features, row_index):
+def explain_row(features, row_index, model_kind="legacy"):
     """计算单客户SHAP贡献并返回前10个影响因素。"""
-    pipe = load_model()
+    pipe = load_model(model_kind)
     pre = get_preprocessor(pipe)
     x_transformed = pre.transform(features.iloc[[row_index]])
     names = pre.get_feature_names_out()
-    shap_result = load_explainer()(x_transformed)
+    shap_result = load_explainer(model_kind)(x_transformed)
     shap_values = np.asarray(shap_result.values if hasattr(shap_result, "values") else shap_result)
     if shap_values.ndim == 3:
         shap_values = shap_values[:, :, 1]
@@ -416,7 +469,7 @@ def diagnosis_text(row, explanation=None):
     )
 
 
-def build_operations_report(row, features, row_index):
+def build_operations_report(row, features, row_index, model_kind="legacy"):
     """生成可下载的AI客户运营方案。"""
     lines = [
         "智银护航｜AI客户运营方案",
@@ -436,7 +489,7 @@ def build_operations_report(row, features, row_index):
         "风险原因：",
     ]
     try:
-        explanation = explain_row(features, row_index).head(3)
+        explanation = explain_row(features, row_index, model_kind).head(3)
         for rank, (_, item) in enumerate(explanation.iterrows(), 1):
             lines.append(f"{rank}. {item['影响因素']}：{float(item['SHAP贡献']):.3f}，{item['风险影响']}")
     except Exception:
@@ -460,6 +513,7 @@ def init_data():
         "predictions": None,
         "features": None,
         "report_text": None,
+        "model_kind": "legacy",
     }.items():
         if key not in st.session_state:
             st.session_state[key] = default
@@ -511,16 +565,19 @@ def page_data_management():
     page_header("数据管理", "上传CSV客户数据，完成字段校验与业务化展示。")
     st.markdown('<div class="section-note">区域信息采用业务场景模拟映射，用于展示客户运营分析流程。</div>', unsafe_allow_html=True)
     st.write("后台模型字段保持不变：CreditScore、Geography、Gender、Age、Tenure、Balance、NumOfProducts、HasCrCard、IsActiveMember、EstimatedSalary。")
-    file = st.file_uploader("选择客户CSV文件", type=["csv"])
+    file = st.file_uploader("选择客户CSV或Excel文件", type=["csv", "xlsx"])
     if file is not None:
         try:
-            raw = pd.read_csv(file)
-            prepare_input(raw)
+            raw = pd.read_excel(file) if str(file.name).lower().endswith(".xlsx") else pd.read_csv(file)
+            model_kind = detect_model_kind(raw)
+            prepare_input(raw, model_kind)
             st.session_state.raw_data = raw
+            st.session_state.model_kind = model_kind
             st.session_state.predictions = None
             st.session_state.features = None
             st.session_state.report_text = None
-            st.success(f"已载入 {len(raw):,} 条客户记录，字段校验通过。")
+            dataset_name = "本土化扩展数据集" if model_kind == "localized" else "欧洲基准数据集"
+            st.success(f"已载入 {len(raw):,} 条客户记录，{dataset_name}字段校验通过。")
         except pd.errors.EmptyDataError:
             st.error("文件格式错误或内容为空，请上传有效CSV文件。")
         except UnicodeDecodeError:
@@ -540,9 +597,10 @@ def page_risk_identification():
         return
     if st.button("运行流失风险预测", type="primary") or st.session_state.predictions is None:
         try:
-            result, features = run_prediction(st.session_state.raw_data)
+            result, features, model_kind = run_prediction(st.session_state.raw_data)
             st.session_state.predictions = result
             st.session_state.features = features
+            st.session_state.model_kind = model_kind
         except Exception as exc:
             st.error(str(exc))
             return
@@ -585,7 +643,8 @@ def page_ai_explanation():
         st.info("请先上传数据并运行预测。")
         return
     result = st.session_state.predictions
-    global_table = global_shap_table()
+    model_kind = st.session_state.get("model_kind", "legacy")
+    global_table = global_shap_table(model_kind)
     if global_table is not None:
         st.subheader("全局SHAP关键影响因素")
         st.dataframe(global_table.head(10).style.format({"平均绝对SHAP": "{:.4f}"}), use_container_width=True, hide_index=True)
@@ -599,7 +658,7 @@ def page_ai_explanation():
     profile[3].metric("客户价值", row["客户价值"])
     explanation = None
     try:
-        explanation = explain_row(st.session_state.features, idx)
+        explanation = explain_row(st.session_state.features, idx, model_kind)
         explanation["SHAP贡献"] = explanation["SHAP贡献"].round(3)
         st.subheader("单客户SHAP分析")
         st.bar_chart(explanation.set_index("影响因素")["SHAP贡献"], color="#4B83C7", height=320)
@@ -650,7 +709,7 @@ def page_smart_operations():
     ], columns=["客户分层", "运营策略"])
     st.dataframe(matrix, use_container_width=True, hide_index=True)
     if st.button("生成AI客户运营方案", type="primary"):
-        st.session_state.report_text = build_operations_report(row, st.session_state.features, idx)
+        st.session_state.report_text = build_operations_report(row, st.session_state.features, idx, st.session_state.get("model_kind", "legacy"))
     if st.session_state.report_text:
         st.text_area("AI客户运营方案", st.session_state.report_text, height=350)
         st.download_button("下载AI客户运营方案", st.session_state.report_text.encode("utf-8-sig"), f"AI客户运营方案_{row['客户ID']}.txt", "text/plain")
@@ -758,8 +817,8 @@ init_data()
 inject_styles()
 page = render_sidebar()
 
-if page.startswith(("2", "3", "4")) and not MODEL_PATH.exists():
-    st.error(f"未找到模型文件：{MODEL_PATH}")
+if page.startswith(("2", "3", "4")) and not MODEL_PATH.exists() and not LOCAL_MODEL_PATH.exists():
+    st.error("未找到模型文件，请先上传或部署模型文件。")
     st.stop()
 
 if page.startswith("0"):
