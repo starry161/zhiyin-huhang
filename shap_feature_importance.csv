@@ -1,0 +1,14 @@
+﻿Feature,Mean_Abs_SHAP,Rank,BusinessFeature
+num__Age,0.9014342,1,num__Age
+num__NumOfProducts,0.8470414,2,num__NumOfProducts
+num__IsActiveMember,0.41235635,3,num__IsActiveMember
+num__Balance,0.28062335,4,num__Balance
+cat__Gender_Female,0.2609415,5,cat__Gender_Female
+cat__Geography_Germany,0.21668017,6,cat__Geography_Germany
+num__EstimatedSalary,0.19377013,7,num__EstimatedSalary
+num__CreditScore,0.15943724,8,num__CreditScore
+num__Tenure,0.07875215,9,num__Tenure
+cat__Geography_France,0.071576215,10,cat__Geography_France
+num__HasCrCard,0.034511324,11,num__HasCrCard
+cat__Geography_Spain,0.029078431,12,cat__Geography_Spain
+cat__Gender_Male,0.0196372,13,cat__Gender_Male

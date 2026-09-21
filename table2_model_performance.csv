@@ -1,0 +1,5 @@
+﻿Model,Accuracy,Precision,Recall,F1-score,ROC-AUC,PR-AUC,CV_F1_mean,CV_Recall_mean,TN,FP,FN,TP,Best_Params
+RandomForest,0.8325,0.575,0.6781326781326781,0.6223224351747464,0.8616289633238785,0.6898647815737642,0.6188079735465506,0.6650306748466258,1389,204,131,276,"{""model__n_estimators"": 400, ""model__min_samples_leaf"": 5, ""model__max_features"": ""sqrt"", ""model__max_depth"": 10, ""model__class_weight"": ""balanced_subsample""}"
+XGBoost,0.8055,0.5155709342560554,0.7321867321867321,0.6050761421319797,0.864761525778475,0.7105574443005018,0.6117730786323715,0.7202453987730062,1313,280,109,298,"{""model__subsample"": 0.8, ""model__reg_lambda"": 1.0, ""model__n_estimators"": 200, ""model__min_child_weight"": 5, ""model__max_depth"": 4, ""model__learning_rate"": 0.1, ""model__colsample_bytree"": 0.8}"
+LogisticRegression,0.714,0.3880597014925373,0.7027027027027027,0.5,0.7771870483734891,0.4677377847280765,0.4887145652708025,0.6852760736196319,1142,451,121,286,"{""model__C"": 0.1}"
+DummyClassifier,0.7965,0.0,0.0,0.0,0.5,0.2035,0.0,0.0,1593,0,407,0,"{""model__strategy"": ""prior""}"
