@@ -204,10 +204,7 @@ def display_dataframe(data):
     return shown.rename(columns=FEATURE_LABELS)
 
 
-def upload_preview_table(raw):
-    """上传页预览表：隐藏RowNumber、Surname等无业务展示价值字段。"""
-    cols = ["CustomerId", "CreditScore", "Geography", "Age", "Balance", "NumOfProducts", "IsActiveMember", "EstimatedSalary"]
-    return display_dataframe(raw[[c for c in cols if c in raw.columns]])
+def upload_preview_table(raw): return raw[[c for c in (["客户ID", "性别", "年龄", "所在城市", "教育水平", "职业", "信用评分", "开户年限", "账户余额", "账户类型", "持有产品数", "月均交易次数", "月均交易金额", "客服联系次数", "投诉次数", "是否流失"] if "是否流失" in raw.columns else ["CustomerId", "CreditScore", "Geography", "Age", "Balance", "NumOfProducts", "IsActiveMember", "EstimatedSalary"]) if c in raw.columns]] if "是否流失" in raw.columns else display_dataframe(raw[[c for c in ["CustomerId", "CreditScore", "Geography", "Age", "Balance", "NumOfProducts", "IsActiveMember", "EstimatedSalary"] if c in raw.columns]])
 
 
 def metric_file():
