@@ -377,7 +377,7 @@ def run_prediction(raw):
     features, ids, model_kind = prepare_input(raw, model_kind)
     proba = pipe.predict_proba(features)[:, 1]
     result = raw.copy()
-    result.insert(0, "客户ID", ids.astype(str).values)
+    result["客户ID"] = ids.astype(str).values
     result["流失概率"] = proba
     result["风险等级"] = [risk_level(p) for p in proba]
     result["客户价值"] = [value_segment(row) for _, row in features.iterrows()]
